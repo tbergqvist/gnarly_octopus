@@ -1,0 +1,25 @@
+{
+    "compilerOptions": {
+        "target": "es6",
+        "module": "commonjs",
+        "sourceMap": true, 
+        "experimentalDecorators": true, 
+        "emitDecoratorMetadata": true,
+        "removeComments": true,
+        "allowUnreachableCode": false,
+        "forceConsistentCasingInFileNames": true,
+        "noImplicitAny": true,
+        "noImplicitReturns": true,
+        "noImplicitThis": true,
+        "noUnusedParameters": true,
+        "noUnusedLocals": true,
+        "alwaysStrict": true,
+        "noFallthroughCasesInSwitch": true,
+        "strict": true
+    },
+    "include": [
+        "src/**/*.ts",
+        "typings/*",
+        "../shared/**/*"
+    ]
+}
