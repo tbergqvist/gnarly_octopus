@@ -3,52 +3,27 @@ import { Request, Response, NextFunction } from "express";
 
 import { json } from "body-parser";
 import { database } from "./database";
+import { createDbData, DataGatherer, Source, SqlDataValue } from "./data-gatherer";
+import { DatabaseSource } from "./database-source";
 
 const app = express();
 
 app.use(json());
 
-interface DataJoiner {
-  addSql(dataValue: DataValue): void;
-  run(filters: any): Promise<any>;
-}
-
-interface Table {
-  name: string;
-  joinColumns: DataValue[];
-}
-
-interface DataValue {
-  name: string;
-  table: Table;
-
-  addData(joiner: DataJoiner): void;
-}
-
-function createDbData(data: {name: string, table: Table}): DataValue {
-  let bla = Object.assign(
-    {
-      addData(joiner: DataJoiner) {
-        joiner.addSql(bla);
-      }
-    }, 
-    data);
-  return bla;
-}
-
-let Tables: {[key: string]: Table} = {
-  Users: {name: "users", joinColumns: []},
-  UserWebpages: {name: "user_webpages", joinColumns: []}
+let Sources: {[key: string]: Source} = {
+  Users: new DatabaseSource("users", []),
+  UserWebpages: new DatabaseSource("user_webpages", [])
 };
 
-let Data = {
-  UserId: createDbData({name: "user_id", table: Tables.Users}),
-  Username: createDbData({name: "username", table: Tables.Users }),
-  UserWebpage: createDbData({name: "webpage", table: Tables.UserWebpages })
+let Data: {[key: string]: SqlDataValue} = {
+  UserId: createDbData({ name: "user_id", source: Sources.Users }),
+  Username: createDbData({ name: "username", source: Sources.Users }),
+  UserWebpage: createDbData({ name: "webpage", source: Sources.UserWebpages })
 };
 
-Tables.Users.joinColumns = [];
-Tables.UserWebpages.joinColumns = [Data.UserId];
+Sources.Users.joinColumns = [];
+Sources.UserWebpages.joinColumns = [Data.UserId];
+Sources.UserAddress.joinColumns = [Data.UserId];
 
 enum ParseTypes {
   Number,
@@ -74,6 +49,7 @@ let dbPool = database.createDbPool();
 let userReport = {
   filters: [Filters.UserId, Filters.FreeSearch],
   getUrl: "localhost:3000/reports/1?{?userId,freeSearch}",
+  origin: Sources.Users,
   columns: [
     { column: Data.UserId, type: ParseTypes.Number },
     { column: Data.Username, type: ParseTypes.String },
@@ -85,44 +61,11 @@ app.get("/reports", (_: Request, response: Response)=> {
 });
 
 app.get("/reports/1", (request: Request, response: Response)=> {
-  let joiner = createJoiner();
-  userReport.columns.forEach(c => joiner.addSql(c.column));
-  joiner.run(request.query).then((data)=> {
-    return response.status(200).send(data);
-  })
+  let joiner = new DataGatherer(userReport, request.query, dbPool);
+  
+  joiner.run().then((result)=> {
+    return response.status(200).send(result);
+  });
 });
 
 app.listen(3000, "localhost", () => console.log('Example app listening on port 3000!'));
-
-function createJoiner(): DataJoiner {
-  let sqlTargets: DataValue[] = [];
-  return {
-    addSql(dataValue: DataValue) {
-      sqlTargets.push(dataValue);
-    },
-
-    run(filterParameters: any) {
-      let firstJoin = Tables.Users;
-      let tables = Array.from(new Set(sqlTargets.filter(c => c.table !== firstJoin).map(t => t.table)));
-
-      let query = `
-      select
-        ${sqlTargets.map(c => c.table.name + '.' + c.name).join(", ")}
-      from
-        ${firstJoin.name}
-        ${tables.map(t => `inner join ${t.name} on ${t.joinColumns.map(c => `${t.name}.${c.name} = ${c.table.name}.${c.name}`).join(" and ")}`).join('')}
-      where
-        ${userReport.filters.map(f => `(${f.columns.map(c => `(${filterParameters[f.name]} is null or ${c.table.name}.${c.name} = ${filterParameters[f.name]})`).join(" or ")})`).join(" and \n")}
-      ;`;
-      console.log(query);
-      
-      return new Promise((resolve)=> {
-        dbPool.query(query, (err, results)=> {
-          console.log(err, results);
-          resolve(results);
-        });
-      });
-      
-    },
-  }
-}
