@@ -2,12 +2,12 @@ import { Pool } from "mysql";
 
 export interface Source {
   name: string;
-  joinColumns: SqlDataValue[];
+  columns: SqlDataValue[];
 }
 
 export interface SqlDataValue {
   name: string;
-  source: Source;
+  sources: Source[];
 
   addData(joiner: DataGatherer): void;
 }
@@ -22,15 +22,21 @@ export interface Report {
   }[]
 }
 
-export function createDbData(params: {name: string, source: Source}): SqlDataValue {
-  let bla = Object.assign(
+export function createDbData(params: {name: string, sources: Source[]}): SqlDataValue {
+  let data = Object.assign(
     {
       addData(gatherer: DataGatherer) {
-        gatherer.addSql(bla);
+        gatherer.addSql(data);
       }
     }, 
     params);
-  return bla;
+  return data;
+}
+
+interface JoinedTable {
+  source: Source;
+  columns: SqlDataValue[];
+  join?: {source: Source, column: SqlDataValue };
 }
 
 export class DataGatherer {
@@ -58,22 +64,94 @@ export class DataGatherer {
 
     let firstJoin = this._report.origin;
 
-    let tables = Array.from(new Set(this.sqlTargets.filter(c => c.source !== firstJoin).map(t => t.source)));
-    
-    let sqlFilters: {name: string, columns: SqlDataValue[]}[] = <any>this._report.filters.filter(f => this.sqlTargets.find(s => !!f.columns.find(f2 => f2.name === s.name)));
+    let joinedTables: {[key: string]: JoinedTable} = {
+      [firstJoin.name]: {
+        source: firstJoin,
+        columns: []
+      }
+    };
+
+    function findBestTable(column: SqlDataValue) {
+      //1. loop joinedTables and look for columns that share data with this new column
+
+      for (let key in joinedTables) {
+        let joinedTable = joinedTables[key];
+
+        for (let column2 of joinedTable.source.columns) {
+          for (let source of column.sources) {
+            for (let column3 of source.columns) {
+              if (column3 === column2)
+                return {
+                  from: joinedTable,
+                  to: source,
+                  column: column3
+                };
+            }
+          }
+        }
+      }
+      throw Error("Nothing found!!!");
+    }
+
+    function findExistingJoin(column: SqlDataValue) {
+      for (let source of column.sources) {
+        let existingTable = joinedTables[source.name];
+        if (existingTable) {
+          return existingTable;
+        }
+      }
+
+      return undefined;
+    }
+
+    this.sqlTargets.forEach(column => {
+      let existingJoin = findExistingJoin(column);
+      if (!existingJoin) {
+        let table = findBestTable(column);
+        joinedTables[table.to.name] = {
+          source: table.to,
+          columns: [column],
+          join: { source: table.from.source, column: table.column }
+        };
+      } else {
+        existingJoin.columns.push(column);
+      }
+    });
+
+    let tables = Object.keys(joinedTables).map(key => joinedTables[key]);
+
+    function getColumns(sqlTargets: SqlDataValue[], tables: JoinedTable[]) {
+      return sqlTargets.map(target => {
+        let table = tables.find(t => t.columns.some(c => c === target));
+        return `${table!.source.name}.${target.name}`;
+      });
+    }
+
+    function getTables(tables: JoinedTable[]) {
+      return tables.map(t => !t.join ? t.source.name : 
+        `inner join ${t.source.name} on ${t.source.name}.${t.join.column.name} = ${t.join.source.name}.${t.join.column.name}`).join("\n");
+    }
+
+    function getFilters(filters: { name: string, columns: SqlDataValue[] }[], tables: JoinedTable[], parameters: any) {
+      let usedFilters = filters.filter(f => !!parameters[f.name]);
+
+      return usedFilters.map(target => {
+        return "(" + target.columns.map(column => {
+          let table = tables.find(t => t.columns.some(c => c === column));
+          return `${table!.source.name}.${column.name} = ${parameters[target.name]}`;
+        }).join(" or ") + ")";
+      }).join(" and ");
+    }
 
     let query = `
-    select
-      ${this.sqlTargets.map(c => c.source.name + '.' + c.name).join(", ")}
-    from
-      ${firstJoin.name}
-      ${tables.map(t => `inner join ${t.name} on ${t.joinColumns.map(c => `${t.name}.${c.name} = ${c.source.name}.${c.name}`).join(" and ")}`).join('')}
-    where
-      ${sqlFilters.map(f => `(${f.columns.map(c => `(${this._filterParameters[f.name]} is null or ${c.source.name}.${c.name} = ${this._filterParameters[f.name]})`).join(" or ")})`).join(" and \n")}
-    ;`;
-    console.log(query);
-    
-    return new Promise((resolve)=> {
+      select ${getColumns(this.sqlTargets, tables)}
+      from ${getTables(tables)}
+      where ${getFilters(this._report.filters, tables, this._filterParameters)}
+    `;
+
+   console.log(query);
+
+   return new Promise((resolve)=> {
       this._dbPool.query(query, (err, results)=> {
         console.log(err, results);
         resolve(results);

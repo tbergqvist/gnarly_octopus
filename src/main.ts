@@ -3,27 +3,39 @@ import { Request, Response, NextFunction } from "express";
 
 import { json } from "body-parser";
 import { database } from "./database";
-import { createDbData, DataGatherer, Source, SqlDataValue } from "./data-gatherer";
+import { createDbData, DataGatherer } from "./data-gatherer";
 import { DatabaseSource } from "./database-source";
 
 const app = express();
 
 app.use(json());
 
-let Sources: {[key: string]: Source} = {
+let Sources = {
   Users: new DatabaseSource("users", []),
-  UserWebpages: new DatabaseSource("user_webpages", [])
+  UserWebpages: new DatabaseSource("user_webpages", []),
 };
 
-let Data: {[key: string]: SqlDataValue} = {
-  UserId: createDbData({ name: "user_id", source: Sources.Users }),
-  Username: createDbData({ name: "username", source: Sources.Users }),
-  UserWebpage: createDbData({ name: "webpage", source: Sources.UserWebpages })
+let Data = {
+  UserId: createDbData({
+    name: "user_id",
+    sources: [
+      Sources.Users, 
+      Sources.UserWebpages
+    ]
+  }),
+  Username: createDbData({
+    name: "username",
+    sources: [Sources.Users]
+  }),
+  UserWebpage: createDbData({
+    name: "webpage",
+    sources: [Sources.UserWebpages]
+  })
 };
 
-Sources.Users.joinColumns = [];
-Sources.UserWebpages.joinColumns = [Data.UserId];
-Sources.UserAddress.joinColumns = [Data.UserId];
+//TODO: generate this instead
+Sources.Users.columns = [Data.UserId, Data.Username];
+Sources.UserWebpages.columns = [Data.UserId, Data.UserWebpage];
 
 enum ParseTypes {
   Number,
