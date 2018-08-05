@@ -39,12 +39,18 @@ interface JoinedTable {
   join?: {source: Source, column: SqlDataValue };
 }
 
+interface Sorting {
+  column: string;
+  order: string;
+}
+
 export class DataGatherer {
   sqlTargets: SqlDataValue[] = [];
   
   constructor(
     private _report: Report, 
     private _filterParameters: any, 
+    private _sorting: Sorting | null, 
     private _dbPool: Pool
   ) {
     
@@ -143,12 +149,21 @@ export class DataGatherer {
       }).join(" and ");
     }
 
+    function getSorting(sorting: Sorting | null) {
+      if (sorting == null) {
+        return "";
+      }
+      console.log(sorting);
+      return `order by ${sorting.column} ${sorting.order}`
+    }
+
     let filters = getFilters(this._report.filters, tables, this._filterParameters);
 
     let query = `
       select ${getColumns(this.sqlTargets, tables)}
       from ${getTables(tables)}
       ${filters ? ` where ${filters}` : ""}
+      ${getSorting(this._sorting)}
     ;
     `;
 

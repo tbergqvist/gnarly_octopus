@@ -63,7 +63,7 @@ let dbPool = database.createDbPool();
 
 let userReport = {
   filters: [Filters.UserId, Filters.FreeSearch],
-  getUrl: "localhost:3000/reports/1?{?userId,freeSearch}",
+  getUrl: "localhost:3000/reports/1?{?userId,freeSearch,sortOrder,sortColumn}", //TODO: generate
   origin: Sources.Users,
   columns: [
     { column: Data.UserId, type: ParseTypes.Number },
@@ -83,7 +83,12 @@ app.get("/reports", (_: Request, response: Response)=> {
 });
 
 app.get("/reports/1", (request: Request, response: Response)=> {
-  let joiner = new DataGatherer(userReport, request.query, dbPool);
+  let sortOrder = request.query.sortOrder ? {
+    column: request.query.sortColumn,
+    order: request.query.sortOrder || "asc"
+  } : null;
+  
+  let joiner = new DataGatherer(userReport, request.query, sortOrder, dbPool);
   
   joiner.run().then((result)=> {
     return response.status(200).send(result);
