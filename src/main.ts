@@ -3,7 +3,7 @@ import { Request, Response, NextFunction } from "express";
 
 import { json } from "body-parser";
 import { database } from "./database";
-import { createDbData, DataGatherer } from "./data-gatherer";
+import { createDbData, DataGatherer, SqlDataValue } from "./data-gatherer";
 import { DatabaseSource } from "./database-source";
 
 const app = express();
@@ -33,9 +33,12 @@ let Data = {
   })
 };
 
-//TODO: generate this instead
-Sources.Users.columns = [Data.UserId, Data.Username];
-Sources.UserWebpages.columns = [Data.UserId, Data.UserWebpage];
+Object.keys(Data).forEach(k => {
+  let data = Data as {[key: string]: SqlDataValue};
+  data[k].sources.forEach((d) => {
+    d.columns.push(data[k]);
+  });
+});
 
 enum ParseTypes {
   Number,
@@ -69,7 +72,14 @@ let userReport = {
 ]};
 
 app.get("/reports", (_: Request, response: Response)=> {
-  return response.status(200).send(userReport);
+  let convertedReport = {
+    filters: userReport.filters.map(f => ({ name: f.name })),
+    getUrl: userReport.getUrl,
+    columns: userReport.columns.map(c => ({
+      ...c, column: c.column.name
+    }))
+  };
+  return response.status(200).send(convertedReport);
 });
 
 app.get("/reports/1", (request: Request, response: Response)=> {

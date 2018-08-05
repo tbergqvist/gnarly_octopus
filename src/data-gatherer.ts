@@ -143,10 +143,13 @@ export class DataGatherer {
       }).join(" and ");
     }
 
+    let filters = getFilters(this._report.filters, tables, this._filterParameters);
+
     let query = `
       select ${getColumns(this.sqlTargets, tables)}
       from ${getTables(tables)}
-      where ${getFilters(this._report.filters, tables, this._filterParameters)}
+      ${filters ? ` where ${filters}` : ""}
+    ;
     `;
 
    console.log(query);
